@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Esquemático de conexión — ESP32 / Sistema de Monitoreo Hídrico</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --line: #30363d;
+    --esp32: #2d5f3e;
+    --esp32-border: #4a9c68;
+    --sensor: #1f3a5f;
+    --sensor-border: #4a8ac9;
+    --actuator: #5f2d2d;
+    --actuator-border: #c94a4a;
+    --power: #5f4d1f;
+    --power-border: #c9a34a;
+    --wire-data: #4a9c68;
+    --wire-power: #c94a4a;
+    --wire-gnd: #6e7681;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --font-mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    margin: 0;
+    padding: 32px 20px 60px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: 0.3px;
+  }
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin: 0 0 28px;
+  }
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  .diagram {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 28px;
+    overflow-x: auto;
+  }
+  svg { display: block; margin: 0 auto; }
+
+  .legend {
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    margin-top: 22px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 14px; height: 3px; border-radius: 2px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 28px;
+    font-size: 12.5px;
+  }
+  caption {
+    text-align: left;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 8px 10px;
+    text-align: left;
+  }
+  th {
+    background: #1c2128;
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 10.5px;
+  }
+  td.pin { color: var(--wire-data); font-weight: 600; }
+  tr:nth-child(even) td { background: #12161c; }
+
+  .note {
+    margin-top: 24px;
+    padding: 14px 16px;
+    border-left: 3px solid var(--power-border);
+    background: #1c1912;
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    border-radius: 0 6px 6px 0;
+  }
+  .note b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Esquemático de conexión — ESP32</h1>
+  <p class="subtitle">Sistema IoT de monitoreo hídrico · Challenge #1 · Internet de las Cosas 2026-2</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 920 640" width="920" height="640">
+      <!-- ESP32 central -->
+      <rect x="380" y="240" width="160" height="160" rx="10" fill="#2d5f3e" stroke="#4a9c68" stroke-width="2"/>
+      <text x="460" y="310" text-anchor="middle" fill="#e6edf3" font-size="16" font-weight="700" font-family="monospace">ESP32</text>
+      <text x="460" y="330" text-anchor="middle" fill="#a8d5b8" font-size="10.5" font-family="monospace">DevKit</text>
+      <text x="460" y="345" text-anchor="middle" fill="#a8d5b8" font-size="10.5" font-family="monospace">deep-sleep RTC</text>
+
+      <!-- Sensor: HC-SR04 -->
+      <rect x="60" y="40" width="150" height="60" rx="8" fill="#1f3a5f" stroke="#4a8ac9" stroke-width="1.5"/>
+      <text x="135" y="65" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">HC-SR04</text>
+      <text x="135" y="82" text-anchor="middle" fill="#8fb8e8" font-size="10" font-family="monospace">Nivel de agua</text>
+
+      <!-- Sensor: DHT22 -->
+      <rect x="60" y="150" width="150" height="60" rx="8" fill="#1f3a5f" stroke="#4a8ac9" stroke-width="1.5"/>
+      <text x="135" y="175" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">DHT22</text>
+      <text x="135" y="192" text-anchor="middle" fill="#8fb8e8" font-size="10" font-family="monospace">Temp / Humedad</text>
+
+      <!-- Sensor: BME280 -->
+      <rect x="60" y="260" width="150" height="60" rx="8" fill="#1f3a5f" stroke="#4a8ac9" stroke-width="1.5"/>
+      <text x="135" y="285" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">BME280</text>
+      <text x="135" y="302" text-anchor="middle" fill="#8fb8e8" font-size="10" font-family="monospace">Presión (I2C)</text>
+
+      <!-- Sensor: LDR -->
+      <rect x="60" y="370" width="150" height="60" rx="8" fill="#1f3a5f" stroke="#4a8ac9" stroke-width="1.5"/>
+      <text x="135" y="395" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">LDR + R 10kΩ</text>
+      <text x="135" y="412" text-anchor="middle" fill="#8fb8e8" font-size="10" font-family="monospace">Radiación (proxy)</text>
+
+      <!-- Sensor: YF-S201 opcional -->
+      <rect x="60" y="480" width="150" height="60" rx="8" fill="#1f3a5f" stroke="#4a8ac9" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <text x="135" y="505" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">YF-S201</text>
+      <text x="135" y="522" text-anchor="middle" fill="#8fb8e8" font-size="10" font-family="monospace">Caudal (opcional)</text>
+
+      <!-- Actuador: LCD/OLED -->
+      <rect x="710" y="60" width="150" height="60" rx="8" fill="#5f2d2d" stroke="#c94a4a" stroke-width="1.5"/>
+      <text x="785" y="85" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">OLED I2C</text>
+      <text x="785" y="102" text-anchor="middle" fill="#e8a3a3" font-size="10" font-family="monospace">Nivel/Temp/Estado</text>
+
+      <!-- Actuador: LED semáforo -->
+      <rect x="710" y="170" width="150" height="60" rx="8" fill="#5f2d2d" stroke="#c94a4a" stroke-width="1.5"/>
+      <text x="785" y="195" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">LED RGB</text>
+      <text x="785" y="212" text-anchor="middle" fill="#e8a3a3" font-size="10" font-family="monospace">Verde/Ámbar/Rojo</text>
+
+      <!-- Actuador: Buzzer via relé -->
+      <rect x="710" y="280" width="150" height="60" rx="8" fill="#5f2d2d" stroke="#c94a4a" stroke-width="1.5"/>
+      <text x="785" y="300" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">Relé + Buzzer</text>
+      <text x="785" y="317" text-anchor="middle" fill="#e8a3a3" font-size="10" font-family="monospace">Alerta sonora 12V</text>
+
+      <!-- Power: Panel solar + LiPo -->
+      <rect x="710" y="390" width="150" height="70" rx="8" fill="#5f4d1f" stroke="#c9a34a" stroke-width="1.5"/>
+      <text x="785" y="415" text-anchor="middle" fill="#e6edf3" font-size="12.5" font-weight="600" font-family="monospace">Panel solar</text>
+      <text x="785" y="432" text-anchor="middle" fill="#eccf8f" font-size="10" font-family="monospace">+ LiPo + TP4056</text>
+      <text x="785" y="447" text-anchor="middle" fill="#eccf8f" font-size="10" font-family="monospace">3.7V → 5V boost</text>
+
+      <!-- Wires: sensors to ESP32 (data, green) -->
+      <path d="M210,70 L340,70 L340,260" stroke="#4a9c68" stroke-width="1.6" fill="none"/>
+      <path d="M210,180 L360,180 L360,280" stroke="#4a9c68" stroke-width="1.6" fill="none"/>
+      <path d="M210,290 L380,290" stroke="#4a9c68" stroke-width="1.6" fill="none"/>
+      <path d="M210,400 L360,400 L360,320" stroke="#4a9c68" stroke-width="1.6" fill="none"/>
+      <path d="M210,510 L340,510 L340,340" stroke="#4a9c68" stroke-width="1.6" stroke-dasharray="4 3" fill="none"/>
+
+      <!-- Wires: ESP32 to actuators -->
+      <path d="M540,290 L680,290 L680,90 L710,90" stroke="#4a9c68" stroke-width="1.6" fill="none"/>
+      <path d="M540,310 L660,310 L660,200 L710,200" stroke="#c94a4a" stroke-width="1.6" fill="none"/>
+      <path d="M540,330 L680,330 L680,310 L710,310" stroke="#c94a4a" stroke-width="1.6" fill="none"/>
+
+      <!-- Wires: power -->
+      <path d="M710,425 L560,425 L560,380 L540,380" stroke="#c9a34a" stroke-width="2" fill="none"/>
+
+      <!-- Arrowheads (dots) -->
+      <circle cx="380" cy="260" r="3" fill="#4a9c68"/>
+      <circle cx="380" cy="280" r="3" fill="#4a9c68"/>
+      <circle cx="380" cy="290" r="3" fill="#4a9c68"/>
+      <circle cx="380" cy="320" r="3" fill="#4a9c68"/>
+      <circle cx="380" cy="340" r="3" fill="#4a9c68"/>
+      <circle cx="540" cy="380" r="3" fill="#c9a34a"/>
+
+      <!-- Section labels -->
+      <text x="135" y="20" text-anchor="middle" fill="#6e7681" font-size="10.5" letter-spacing="1" font-family="monospace">SENSORES</text>
+      <text x="785" y="20" text-anchor="middle" fill="#6e7681" font-size="10.5" letter-spacing="1" font-family="monospace">ACTUADORES / SALIDA</text>
+      <text x="785" y="380" text-anchor="middle" fill="#6e7681" font-size="10.5" letter-spacing="1" font-family="monospace">ALIMENTACIÓN</text>
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><span class="swatch" style="background:#4a9c68"></span> Señal de datos (digital/I2C/analógica)</div>
+      <div class="legend-item"><span class="swatch" style="background:#c94a4a"></span> Control de actuador</div>
+      <div class="legend-item"><span class="swatch" style="background:#c9a34a"></span> Alimentación (5V/3.3V regulada)</div>
+      <div class="legend-item">┄┄ Módulo opcional</div>
+    </div>
+  </div>
+
+  <table>
+    <caption>Tabla de conexión de pines — ESP32 DevKit</caption>
+    <thead>
+      <tr><th>Módulo</th><th>Pin módulo</th><th>Pin ESP32</th><th>Tipo de señal</th><th>Nota</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>HC-SR04</td><td class="pin">TRIG</td><td class="pin">GPIO 5</td><td>Digital OUT</td><td>Pulso de disparo 10µs</td></tr>
+      <tr><td>HC-SR04</td><td class="pin">ECHO</td><td class="pin">GPIO 18</td><td>Digital IN</td><td><b>Requiere divisor resistivo</b> (echo es 5V, ESP32 es 3.3V-tolerante en input; usar 1kΩ/2kΩ)</td></tr>
+      <tr><td>DHT22</td><td class="pin">DATA</td><td class="pin">GPIO 4</td><td>Digital 1-Wire</td><td>Resistencia pull-up 10kΩ a 3.3V</td></tr>
+      <tr><td>BME280</td><td class="pin">SDA</td><td class="pin">GPIO 21</td><td>I2C</td><td>Dirección típica 0x76</td></tr>
+      <tr><td>BME280</td><td class="pin">SCL</td><td class="pin">GPIO 22</td><td>I2C</td><td>Bus compartido con OLED</td></tr>
+      <tr><td>LDR</td><td class="pin">Divisor</td><td class="pin">GPIO 34 (ADC)</td><td>Analógica</td><td>Divisor de voltaje LDR + R fija 10kΩ; usar pin ADC1 (no interfiere con WiFi apagado)</td></tr>
+      <tr><td>YF-S201 (opc.)</td><td class="pin">Señal</td><td class="pin">GPIO 27</td><td>Digital (interrupción)</td><td>Conteo de pulsos, ~450 pulsos/L</td></tr>
+      <tr><td>OLED SSD1306</td><td class="pin">SDA/SCL</td><td class="pin">GPIO 21/22</td><td>I2C</td><td>Bus compartido con BME280 (direcciones distintas)</td></tr>
+      <tr><td>LED RGB</td><td class="pin">R/G/B</td><td class="pin">GPIO 25/26/33</td><td>Digital OUT (PWM opc.)</td><td>Resistencias limitadoras 220Ω por canal</td></tr>
+      <tr><td>Relé + Buzzer</td><td class="pin">IN</td><td class="pin">GPIO 32</td><td>Digital OUT</td><td>Relé aísla la etapa de 12V del buzzer; usar relé optoacoplado</td></tr>
+      <tr><td>Panel solar + LiPo</td><td class="pin">VOUT (boost)</td><td class="pin">VIN / 5V</td><td>Alimentación</td><td>TP4056 (carga LiPo) + step-up a 5V; ESP32 regula internamente a 3.3V</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>Notas de diseño:</b> (1) El HC-SR04 requiere protección en el pin ECHO porque su salida es 5V y varios GPIO del ESP32 solo son tolerantes hasta 3.3V — un divisor resistivo simple (1kΩ en serie + 2kΩ a GND) es suficiente. (2) Los pines ADC usados (GPIO 32–39, ADC1) se eligen porque siguen funcionando incluso si el WiFi/BLE del chip está activo, aunque en este diseño esos radios permanecen apagados por restricción del reto. (3) El relé aísla eléctricamente la etapa de alta corriente del buzzer/sirena de la lógica del ESP32, protegiendo el microcontrolador. (4) Todos los módulos I2C (BME280 y OLED) comparten el mismo bus SDA/SCL — deben usar direcciones I2C distintas, lo cual es el caso por defecto en ambos módulos.
+  </div>
+</div>
+</body>
+</html>

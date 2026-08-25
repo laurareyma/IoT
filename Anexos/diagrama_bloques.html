@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Diagrama de bloques — Sistema de Monitoreo Hídrico</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --line: #30363d;
+    --sense: #1f3a5f; --sense-b: #4a8ac9;
+    --acq: #3f2d5f; --acq-b: #8a4ac9;
+    --fusion: #2d5f3e; --fusion-b: #4a9c68;
+    --dec: #5f4d1f; --dec-b: #c9a34a;
+    --act: #5f2d2d; --act-b: #c94a4a;
+    --power: #2d4a5f; --power-b: #4a8ac9;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --font: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); margin:0; padding: 32px 20px 60px; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--text-dim); font-size: 13px; margin: 0 0 28px; }
+  .diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px; overflow-x:auto; }
+  svg { display:block; margin:0 auto; }
+  .legend { display:flex; gap:20px; flex-wrap:wrap; margin-top:20px; font-size:11.5px; color:var(--text-dim);}
+  .legend-item{display:flex;align-items:center;gap:7px;}
+  .sw{width:13px;height:13px;border-radius:3px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Diagrama de bloques del sistema</h1>
+  <p class="subtitle">Sistema IoT de monitoreo hídrico · Challenge #1 · Internet de las Cosas 2026-2</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 1000 720" width="1000" height="720">
+
+      <!-- STAGE 1: SENSADO -->
+      <text x="140" y="30" font-size="11" fill="#8b949e" letter-spacing="1">1. SENSADO</text>
+      <rect x="30" y="45" width="220" height="90" rx="8" fill="#1f3a5f" stroke="#4a8ac9" stroke-width="1.5"/>
+      <text x="140" y="80" text-anchor="middle" font-size="13" font-weight="700" fill="#e6edf3">Sensores</text>
+      <text x="140" y="98" text-anchor="middle" font-size="10" fill="#8fb8e8">HC-SR04 · DHT22</text>
+      <text x="140" y="112" text-anchor="middle" font-size="10" fill="#8fb8e8">BME280 · LDR</text>
+      <text x="140" y="126" text-anchor="middle" font-size="10" fill="#8fb8e8">(YF-S201 opcional)</text>
+
+      <!-- Arrow 1 -->
+      <path d="M250,90 L310,90" stroke="#4a9c68" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+      <!-- STAGE 2: ADQUISICIÓN -->
+      <text x="430" y="30" font-size="11" fill="#8b949e" letter-spacing="1">2. ADQUISICIÓN / ADC</text>
+      <rect x="310" y="45" width="240" height="90" rx="8" fill="#3f2d5f" stroke="#8a4ac9" stroke-width="1.5"/>
+      <text x="430" y="80" text-anchor="middle" font-size="13" font-weight="700" fill="#e6edf3">Lectura periódica</text>
+      <text x="430" y="98" text-anchor="middle" font-size="10" fill="#c8a8f0">GPIO digital + ADC + I2C</text>
+      <text x="430" y="116" text-anchor="middle" font-size="10" fill="#c8a8f0">Buffer circular (ventana N)</text>
+
+      <!-- Arrow down -->
+      <path d="M430,135 L430,175" stroke="#4a9c68" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+      <!-- STAGE 3: FUSIÓN -->
+      <text x="430" y="200" font-size="11" fill="#8b949e" letter-spacing="1">3. LÓGICA DE FUSIÓN (firmware ESP32)</text>
+      <rect x="260" y="215" width="340" height="150" rx="8" fill="#2d5f3e" stroke="#4a9c68" stroke-width="1.5"/>
+      <text x="430" y="245" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e6edf3">nivel_normalizado</text>
+      <text x="430" y="268" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e6edf3">tasa_descenso_nivel</text>
+      <text x="430" y="291" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e6edf3">índice_evaporación_potencial</text>
+      <line x1="290" y1="305" x2="570" y2="305" stroke="#4a9c68" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="430" y="330" text-anchor="middle" font-size="12" font-weight="700" fill="#a8e0bd">riesgo = w1·nivel + w2·tasa + w3·evap</text>
+      <text x="430" y="350" text-anchor="middle" font-size="10" fill="#a8d5b8">(Hargreaves simplificado)</text>
+
+      <!-- Arrow down -->
+      <path d="M430,365 L430,405" stroke="#4a9c68" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+      <!-- STAGE 4: DECISIÓN -->
+      <text x="430" y="428" font-size="11" fill="#8b949e" letter-spacing="1">4. DECISIÓN DE ALERTA</text>
+      <polygon points="430,440 560,500 430,560 300,500" fill="#5f4d1f" stroke="#c9a34a" stroke-width="1.5"/>
+      <text x="430" y="495" text-anchor="middle" font-size="11.5" font-weight="700" fill="#e6edf3">riesgo &gt; umbral</text>
+      <text x="430" y="512" text-anchor="middle" font-size="11.5" font-weight="700" fill="#e6edf3">sostenido?</text>
+
+      <!-- Branch: No -> sleep -->
+      <path d="M300,500 L180,500 L180,610" stroke="#8b949e" stroke-width="1.8" fill="none" marker-end="url(#arrowgray)"/>
+      <text x="230" y="493" font-size="10.5" fill="#8b949e">No</text>
+
+      <!-- Branch: Sí -> actuación -->
+      <path d="M560,500 L680,500" stroke="#c94a4a" stroke-width="2" fill="none" marker-end="url(#arrowred)"/>
+      <text x="600" y="490" font-size="10.5" fill="#e8a3a3">Sí</text>
+
+      <!-- STAGE 5: ACTUACIÓN -->
+      <text x="820" y="428" font-size="11" fill="#8b949e" letter-spacing="1">5. ACTUACIÓN IN SITU</text>
+      <rect x="680" y="440" width="260" height="130" rx="8" fill="#5f2d2d" stroke="#c94a4a" stroke-width="1.5"/>
+      <text x="810" y="470" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e6edf3">OLED — nivel/temp/estado</text>
+      <text x="810" y="495" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e6edf3">LED semáforo</text>
+      <text x="810" y="520" text-anchor="middle" font-size="12.5" font-weight="700" fill="#e6edf3">Buzzer / sirena (relé)</text>
+      <text x="810" y="548" text-anchor="middle" font-size="10" fill="#e8a3a3">Sin transmisión — decisión y</text>
+      <text x="810" y="562" text-anchor="middle" font-size="10" fill="#e8a3a3">ejecución 100% local</text>
+
+      <!-- STAGE: ENERGÍA -->
+      <text x="180" y="633" font-size="11" fill="#8b949e" letter-spacing="1">GESTIÓN DE ENERGÍA</text>
+      <rect x="70" y="608" width="220" height="80" rx="8" fill="#2d4a5f" stroke="#4a8ac9" stroke-width="1.5"/>
+      <text x="180" y="638" text-anchor="middle" font-size="12" font-weight="700" fill="#e6edf3">Panel solar + LiPo</text>
+      <text x="180" y="658" text-anchor="middle" font-size="10.5" fill="#8fb8e8">Deep-sleep ESP32 entre</text>
+      <text x="180" y="672" text-anchor="middle" font-size="10.5" fill="#8fb8e8">mediciones (ciclo 10–15 min)</text>
+
+      <!-- loop back energy -> adquisición -->
+      <path d="M180,608 L180,90 L120,90 M120,90 L120,90" stroke="#4a8ac9" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
+      <path d="M180,608 L180,90 L120,90" stroke="#4a8ac9" stroke-width="1.5" stroke-dasharray="4 3" fill="none" marker-end="url(#arrowblue)"/>
+      <text x="145" y="350" font-size="9.5" fill="#6e94b8" transform="rotate(-90 145 350)">alimenta / controla ciclo</text>
+
+      <!-- Arrow defs -->
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#4a9c68"/></marker>
+        <marker id="arrowred" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#c94a4a"/></marker>
+        <marker id="arrowgray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#8b949e"/></marker>
+        <marker id="arrowblue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#4a8ac9"/></marker>
+      </defs>
+
+    </svg>
+
+    <div class="legend">
+      <div class="legend-item"><span class="sw" style="background:#1f3a5f"></span> Sensado</div>
+      <div class="legend-item"><span class="sw" style="background:#3f2d5f"></span> Adquisición</div>
+      <div class="legend-item"><span class="sw" style="background:#2d5f3e"></span> Fusión de señales</div>
+      <div class="legend-item"><span class="sw" style="background:#5f4d1f"></span> Decisión</div>
+      <div class="legend-item"><span class="sw" style="background:#5f2d2d"></span> Actuación / alerta</div>
+      <div class="legend-item"><span class="sw" style="background:#2d4a5f"></span> Energía</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
