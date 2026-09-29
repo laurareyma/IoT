@@ -1,0 +1,8 @@
+# Credenciales del firmware
+firmware/monitor_hidrico/secrets.h
+
+# Ejecutable de las pruebas unitarias
+firmware/pruebas/test_fusion
+
+# macOS
+.DS_Store
