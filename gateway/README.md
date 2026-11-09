@@ -50,6 +50,81 @@ journalctl -u gateway -f   # ver el registro
 
 En el ESP32, `secrets.h` debe tener `MQTT_HOST` = IP de la Raspberry Pi, `MQTT_USER "tanque01"` y la misma contraseña que se creó con `mosquitto_passwd`. El usuario debe ser igual a `NODO_ID`, porque la ACL limita cada nodo a sus propios temas (`%u`).
 
+## Configurar Ubidots
+
+Los nombres de los menús pueden variar un poco según el plan y la versión de Ubidots. Lo que importa es que las **etiquetas** (*labels*) coincidan exactamente con las de esta guía, porque el gateway publica con esos nombres.
+
+### 1. Token
+
+1. En Ubidots, menú del usuario (arriba a la derecha) → **API Credentials**.
+2. Copiar el **Default token** en `gateway.conf`:
+   ```ini
+   [ubidots]
+   token = BBUS-xxxxxxxxxxxxxxxx
+   ```
+3. Reiniciar el gateway (`sudo systemctl restart gateway`). En el registro (`journalctl -u gateway -f`) debe aparecer `Conectado a Ubidots`. Si dice `Ubidots rechazó la conexión`, el token está mal copiado.
+
+El token da acceso a toda la cuenta: no se sube al repositorio (`gateway.conf` está en `.gitignore`) ni se muestra en el video.
+
+### 2. Dispositivo y variables
+
+El dispositivo `tanque01` y sus variables **se crean solos** la primera vez que el gateway publica (al minuto de recibir lecturas del ESP32). Para verificar: **Devices → Devices → tanque01**.
+
+| Variable (label) | Qué es | La crea |
+|---|---|---|
+| `nivel_pct`, `temp_c`, `hum_pct`, `presion_hpa`, `evaporacion`, `riesgo` | Promedio de cada minuto | El gateway |
+| `estado_alarma` | 0 NORMAL · 1 PRECAUCION · 2 ALERTA · 3 SILENCIADA | El gateway, con la primera alerta |
+| `nodo_en_linea` | 1 = el ESP32 está reportando; 0 = se desconectó | El gateway, al conectarse el ESP32 |
+| `horas_restantes` | Pronóstico de la IA (−1 = nivel estable; 0 = nivel crítico alcanzado). La recomendación, la prioridad y la confianza van en su *context* | El gateway, con el primer pronóstico (a los 5 min) |
+| `silenciar` | Interruptor para silenciar la alarma física | **A mano** (paso 3) |
+
+### 3. Variable de control `silenciar`
+
+1. En **Devices → tanque01**, agregar una variable nueva de tipo **Raw**.
+2. Nombre y label: `silenciar` (en minúsculas, exactamente así).
+3. Darle valor inicial **0**.
+
+El gateway se suscribe a esta variable. Cuando vale 1, envía `silenciar` al ESP32 y la devuelve a 0.
+
+### 4. Tablero global
+
+**Data → Dashboards → + Nuevo tablero** (nombre sugerido: *Monitor hídrico — tanque01*). Widgets (diseño en la wiki, 02e sección 7):
+
+| Widget | Variable | Configuración |
+|---|---|---|
+| Indicador (*Indicator*) o métrica con colores | `estado_alarma` | Rangos de color: 0 verde, 1 ámbar, 2 rojo, 3 rojo (silenciada) |
+| Métrica (*Metric*), uno por variable | `nivel_pct`, `temp_c`, `hum_pct`, `presion_hpa`, `evaporacion`, `riesgo` | Último valor, con unidades (%, °C, %HR, hPa) |
+| Gráfica de línea (*Line chart*) | Las mismas | Rango: últimas 24 h. En la gráfica de `riesgo`, líneas de referencia en 0.40 y 0.65 si el widget lo permite |
+| Indicador | `nodo_en_linea` | 1 = "En línea", 0 = "Sin conexión" |
+| Métrica | `horas_restantes` | Título: "Horas hasta el nivel crítico" |
+| Tabla de valores (*Values table*) | `horas_restantes` | Mostrar las columnas del *context* (`recomendacion`, `prioridad`, `confianza`). Si este widget no muestra el *context* en su plan, usar un widget *HTML Canvas* |
+| Interruptor (*Switch*) | `silenciar` | Valor encendido = 1, apagado = 0 |
+
+### 5. Notificación por Telegram (prueba N-03)
+
+1. **Data → Events → + Crear evento**.
+2. Disparador: variable `estado_alarma` del dispositivo `tanque01`, **igual a 2** (ALERTA), durante 0 minutos.
+3. Acción: **Telegram**. Seguir las instrucciones de Ubidots para vincular el bot con el chat o grupo del personal autorizado.
+4. Mensaje sugerido: `ALERTA en {{device.name}}: riesgo de desabastecimiento. Revisar el tablero.`
+5. Opcional: acción de "vuelta a la normalidad" cuando `estado_alarma` vuelva a 0.
+
+### 6. Acceso restringido (prueba N-05)
+
+- No activar el enlace público del tablero (**Share → Public link** debe quedar apagado).
+- Para dar acceso a otra persona, crearle un usuario en la cuenta (si el plan lo permite) en vez de compartir el enlace.
+
+### 7. Límite de datos del plan
+
+El gateway envía unos **8.600 datos por día**: 6 variables × 1.440 minutos, más los cambios de alarma, la conexión y 288 pronósticos. Revisen el límite diario del plan de Ubidots (en la configuración de la cuenta). Si no alcanza, se puede promediar cada 5 minutos: en `gateway.py`, función `ejecutar()`, cambiar el envío de cada minuto por uno cada 5 minutos y el promedio de `promedio_minuto()` a una ventana de 300 s.
+
+### 8. Verificación rápida
+
+1. Con el ESP32 encendido, en 1–2 minutos aparecen datos en las métricas y gráficas.
+2. Provocar una ALERTA (escenario C-03c): `estado_alarma` pasa a 2 en menos de 10 s (N-02) y llega el mensaje de Telegram (N-03).
+3. Activar el interruptor `silenciar`: el buzzer se apaga en menos de 5 s, el interruptor vuelve a 0 y `estado_alarma` pasa a 3 (N-04).
+4. A los 5 min aparece `horas_restantes` con la recomendación de la IA.
+5. Tomar capturas de cada paso para Resultados (04) y el video.
+
 ## Qué hace
 
 | Mensaje recibido | Acción |
