@@ -1,0 +1,35 @@
+# Configuración del gateway. Copiar como gateway.conf y completar.
+# gateway.conf está en .gitignore: nunca subir el token ni la clave de API.
+
+[general]
+# Nodos conocidos (separados por coma). Un nodo nuevo se agrega solo al publicar.
+nodos = tanque01
+
+[mosquitto]
+host = localhost
+port = 1883
+# Usuario del gateway en el password_file de Mosquitto (ver mosquitto/README)
+usuario = gateway
+clave = cambiar_esta_clave
+
+[ubidots]
+host = industrial.api.ubidots.com
+port = 8883
+# Token del dispositivo o de la cuenta (Ubidots > API Credentials)
+token =
+# Certificado de la CA (vacío = certificados del sistema)
+ca =
+
+[sqlite]
+ruta = /home/pi/gateway/gateway.db
+
+[ia]
+nivel_critico_pct = 20
+# Prototipo: 15 min. En campo: 1440 (24 h)
+ventana_min = 15
+datos_minimos = 5
+periodo_s = 300
+# Clave de la API de Gemini (Google AI Studio). Vacía = siempre plantilla.
+gemini_clave =
+gemini_modelo = gemini-2.5-flash
+gemini_timeout_s = 10

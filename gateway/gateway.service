@@ -1,0 +1,16 @@
+# /etc/systemd/system/gateway.service — Arranca el gateway con la Raspberry Pi
+# y lo reinicia si se detiene.
+[Unit]
+Description=Gateway IoT monitor hidrico (MQTT -> SQLite -> Ubidots + IA)
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/gateway
+ExecStart=/usr/bin/python3 /home/pi/gateway/gateway.py --config /home/pi/gateway/gateway.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

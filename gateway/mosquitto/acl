@@ -1,0 +1,11 @@
+# /etc/mosquitto/acl — Lista de control de acceso (02e, sección 9.1).
+# El gateway lee y escribe todos los temas del sistema.
+user gateway
+topic readwrite sabana/#
+
+# Cada nodo usa como usuario su identificador (NODO_ID, p. ej. tanque01):
+# solo publica en sus propios temas y solo recibe sus propias órdenes.
+pattern write sabana/%u/lectura
+pattern write sabana/%u/alerta
+pattern write sabana/%u/conexion
+pattern read  sabana/%u/cmd/alarma

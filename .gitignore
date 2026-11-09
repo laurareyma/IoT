@@ -6,3 +6,9 @@ firmware/pruebas/test_fusion
 
 # macOS
 .DS_Store
+
+# Gateway: configuración con token y claves, y base de datos
+gateway/gateway.conf
+gateway/*.db
+gateway/*.db-*
+__pycache__/
