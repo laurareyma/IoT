@@ -4,6 +4,7 @@
 // atienden en la tarea de AsyncTCP, sin bloquear la medición ni la alarma.
 // ---------------------------------------------------------------------------
 #include "servidor.h"
+#include "mqtt_cliente.h"
 #include "config.h"
 #include "recursos.h"
 #include "sistema.h"
@@ -45,11 +46,13 @@ static void imprimirNum(Print& out, float v, int decimales) {
   else out.print(v, decimales);
 }
 
-// Requiere mtxEstado tomado.
-static void escribirEstadoJSON(Print& out) {
+// Requiere mtxEstado tomado. También lo usa mqtt_cliente.cpp (mensaje `lectura`).
+void escribirEstadoJSON(Print& out, const char* nodo) {
   const Lectura& l = estado.lectura;
   const ResultadoFusion& f = estado.fusion;
-  out.printf("{\"uptime_ms\":%lu,\"t\":%lu,\"muestras\":%lu,",
+  out.print("{");
+  if (nodo) out.printf("\"nodo\":\"%s\",", nodo);
+  out.printf("\"uptime_ms\":%lu,\"t\":%lu,\"muestras\":%lu,",
              (unsigned long)millis(), (unsigned long)l.t, (unsigned long)estado.muestras);
   out.print("\"nivel_cm\":");        imprimirNum(out, l.nivel_cm, 1);
   out.print(",\"nivel_pct\":");      imprimirNum(out, f.nivel_norm * 100.0f, 1);
@@ -144,12 +147,13 @@ static void configurarRutas() {
     enviarJSON(req, [](Print& out, int) {
       out.printf("{\"uptime_ms\":%lu,\"heap_libre\":%lu,\"heap_min\":%lu,\"rssi_dbm\":%d,"
                  "\"periodo_ultimo_us\":%lu,\"periodo_min_us\":%lu,\"periodo_max_us\":%lu,"
-                 "\"muestras\":%lu,\"perdidas\":%lu,\"clientes_sse\":%u}",
+                 "\"muestras\":%lu,\"perdidas\":%lu,\"clientes_sse\":%u,\"mqtt_conectado\":%s}",
                  (unsigned long)millis(), (unsigned long)ESP.getFreeHeap(),
                  (unsigned long)ESP.getMinFreeHeap(), WiFi.RSSI(),
                  (unsigned long)diag.ultimo_us, (unsigned long)diag.min_us,
                  (unsigned long)diag.max_us, (unsigned long)diag.muestras,
-                 (unsigned long)diag.perdidas, (unsigned)events.count());
+                 (unsigned long)diag.perdidas, (unsigned)events.count(),
+                 mqttConectado() ? "true" : "false");
     }, 0);
   });
 

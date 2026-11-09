@@ -10,5 +10,10 @@
 extern EstadoSistema estado;
 extern DiagMedicion  diag;
 
+// Órdenes del tablero local (el registro de eventos anota la IP del cliente).
 bool alarmaSilenciar(const IPAddress& cliente);
 bool alarmaRearmar(const IPAddress& cliente);
+
+// Órdenes del tablero global, recibidas por MQTT a través del gateway.
+bool alarmaSilenciarRemoto();
+bool alarmaRearmarRemoto();

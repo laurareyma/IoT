@@ -68,8 +68,23 @@ const IPAddress IPS_AUTORIZADAS[] = {
   IPAddress(192, 168, 1, 11),
 };
 
+// ----------------------------- MQTT (Challenge 3) --------------------------
+// Identificador del nodo: va en los temas MQTT (sabana/<nodo>/...) y en el
+// dispositivo de Ubidots. Cambiarlo es lo único necesario para agregar otro
+// punto de monitoreo al mismo gateway (CD-11).
+#define NODO_ID "tanque01"
+const uint32_t MQTT_REINTENTO_MS = 5000;  // espera entre intentos de conexión al broker
+const uint32_t MQTT_TICK_MS      = 100;   // atención de órdenes y keep-alive
+const uint16_t MQTT_KEEPALIVE_S  = 15;    // el broker publica el Last Will a los ~22 s sin respuesta
+const int      MQTT_LARGO_COLA   = 16;    // cambios de alarma pendientes si el broker no responde
+const size_t   MQTT_TAM_MENSAJE  = 768;   // JSON de una lectura (~450 bytes) con margen
+
 // ----------------------------- Tareas FreeRTOS -----------------------------
+// La medición tiene la prioridad más alta del núcleo 0 y MQTT la más baja:
+// si coinciden, la medición siempre va primero.
 const int CORE_MEDICION = 0;
 const int CORE_FUSION   = 1;
+const int CORE_MQTT     = 0;
 const int PRIO_MEDICION = 3;
 const int PRIO_FUSION   = 2;
+const int PRIO_MQTT     = 1;

@@ -1,5 +1,5 @@
 // ===========================================================================
-// Sistema IoT de Monitoreo Hídrico — Challenge 2
+// Sistema IoT de Monitoreo Hídrico — Challenge 3 (nodo ESP32)
 // Internet de las Cosas 2026-2 · Universidad de La Sabana
 //
 // Arquitectura (wiki, páginas 02c, 02e y 02f):
@@ -7,12 +7,14 @@
 //   TareaMedicion  --cola qLecturas-->  TareaFusionAlerta (núcleo 1)
 //   TareaFusionAlerta: fusión, alarma, LCD/LEDs/buzzer, histórico, SSE
 //   Servidor web (tarea de AsyncTCP): tablero, API y silenciar alarma
+//   TareaMQTT (núcleo 0): publica lecturas y alertas al gateway y recibe
+//     las órdenes de silenciar/rearmar del tablero global (mqtt_cliente.cpp)
 //   loop(): solo vigila el Wi-Fi
 //
 // La alerta física no depende de la red: si el Wi-Fi cae, todo lo local sigue.
 //
 // Librerías: ESP Async WebServer y Async TCP (ESP32Async), DHT sensor library,
-// Adafruit BMP280, Adafruit Unified Sensor, LiquidCrystal I2C.
+// Adafruit BMP280, Adafruit Unified Sensor, LiquidCrystal I2C, PubSubClient.
 // Antes de compilar: copiar secrets.h.example como secrets.h.
 // ===========================================================================
 #include <Wire.h>
@@ -25,6 +27,7 @@
 #include "actuacion.h"
 #include "historico.h"
 #include "servidor.h"
+#include "mqtt_cliente.h"
 
 // ----------------------------- Recursos compartidos ------------------------
 SemaphoreHandle_t mtxI2C;
@@ -135,6 +138,11 @@ static void procesarLectura(const Lectura& l) {
 
   servidorPublicarLectura();
   if (cambio && ahora == ALERTA) servidorPublicarAlerta();
+
+  // MQTT hacia el gateway: el cambio de estado primero (va a la cola qMQTT y
+  // no se pierde si el broker está caído) y luego el aviso de lectura nueva.
+  if (cambio) mqttAvisarCambioAlarma(l.t, ahora, f.riesgo, f.causa, ORIGEN_AUTOMATICO);
+  mqttAvisarLectura();
 }
 
 static void TareaFusionAlerta(void*) {
@@ -153,34 +161,39 @@ static void TareaFusionAlerta(void*) {
   }
 }
 
-// ----------------------------- Acciones desde el tablero -------------------
-bool alarmaSilenciar(const IPAddress& cliente) {
+// ----------------------------- Acciones desde los tableros -----------------
+// Silenciar apaga solo el buzzer; el LED rojo y el LCD siguen avisando.
+// El cambio se informa al gateway por MQTT, que actualiza el tablero global
+// con esta confirmación (no con la orden).
+static bool ordenAlarma(bool silenciar, const char* desde, OrigenCambio origen) {
   xSemaphoreTake(mtxEstado, portMAX_DELAY);
-  bool ok = alarma.silenciar();
+  bool ok = silenciar ? alarma.silenciar() : alarma.rearmar();
   if (ok) {
     estado.alarma = alarma.estado();
-    eventoAgregar(millis(), "Silenciada desde %s", cliente.toString().c_str());
+    eventoAgregar(millis(), "%s desde %s", silenciar ? "Silenciada" : "Rearmada", desde);
+    mqttAvisarCambioAlarma(millis(), estado.alarma, estado.fusion.riesgo,
+                           estado.fusion.causa, origen);
   }
   xSemaphoreGive(mtxEstado);
   return ok;
 }
 
-bool alarmaRearmar(const IPAddress& cliente) {
-  xSemaphoreTake(mtxEstado, portMAX_DELAY);
-  bool ok = alarma.rearmar();
-  if (ok) {
-    estado.alarma = alarma.estado();
-    eventoAgregar(millis(), "Rearmada desde %s", cliente.toString().c_str());
-  }
-  xSemaphoreGive(mtxEstado);
-  return ok;
+bool alarmaSilenciar(const IPAddress& cliente) {
+  return ordenAlarma(true, cliente.toString().c_str(), ORIGEN_TABLERO_LOCAL);
 }
+
+bool alarmaRearmar(const IPAddress& cliente) {
+  return ordenAlarma(false, cliente.toString().c_str(), ORIGEN_TABLERO_LOCAL);
+}
+
+bool alarmaSilenciarRemoto() { return ordenAlarma(true,  "Ubidots", ORIGEN_UBIDOTS); }
+bool alarmaRearmarRemoto()   { return ordenAlarma(false, "Ubidots", ORIGEN_UBIDOTS); }
 
 // ----------------------------- setup / loop --------------------------------
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("== Sistema IoT de Monitoreo Hidrico - Challenge 2 ==");
+  Serial.println("== Sistema IoT de Monitoreo Hidrico - Challenge 3 ==");
 
   mtxI2C    = xSemaphoreCreateMutex();
   mtxEstado = xSemaphoreCreateMutex();
@@ -194,6 +207,7 @@ void setup() {
   }
 
   servidorIniciar();
+  mqttIniciar();  // crea TareaMQTT; se conecta al broker cuando haya Wi-Fi
 
   xTaskCreatePinnedToCore(TareaMedicion, "medicion", 4096, nullptr,
                           PRIO_MEDICION, &hTareaMedicion, CORE_MEDICION);

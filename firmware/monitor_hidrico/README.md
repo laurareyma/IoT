@@ -1,6 +1,6 @@
-# Firmware — Monitor hídrico (Challenge 2)
+# Firmware — Monitor hídrico (Challenge 3, nodo ESP32)
 
-Firmware del nodo ESP32: mide nivel de agua y variables meteorológicas, calcula el riesgo de desabastecimiento con lógica de fusión, activa la alarma física y sirve un tablero web en la WLAN de la alcaldía.
+Firmware del nodo ESP32: mide nivel de agua y variables meteorológicas, calcula el riesgo de desabastecimiento con lógica de fusión, activa la alarma física, sirve un tablero web en la WLAN de la alcaldía y publica por MQTT al gateway Raspberry Pi.
 
 ## Compilar y cargar
 
@@ -10,7 +10,8 @@ Firmware del nodo ESP32: mide nivel de agua y variables meteorológicas, calcula
    - `DHT sensor library` y `Adafruit Unified Sensor` (Adafruit)
    - `Adafruit BMP280 Library` (Adafruit)
    - `LiquidCrystal I2C` (Frank de Brabander)
-3. Copiar `secrets.h.example` como `secrets.h` y completar la red Wi-Fi y las credenciales del tablero. `secrets.h` está en `.gitignore`.
+   - `PubSubClient` (Nick O'Leary)
+3. Copiar `secrets.h.example` como `secrets.h` y completar la red Wi-Fi, las credenciales del tablero y los datos del broker MQTT (IP de la Raspberry Pi, usuario y contraseña del nodo). `secrets.h` está en `.gitignore`.
 4. Ajustar `TANQUE_ALTURA_CM` en `config.h` a la altura de la maqueta.
 5. Compilar y cargar. En el Monitor Serie (115200 baudios) se ve la IP y una línea CSV por medición.
 6. Desde un PC o celular conectado a la misma red, abrir `http://<IP del ESP32>` o `http://monitor-hidrico.local`.
@@ -29,6 +30,7 @@ Firmware del nodo ESP32: mide nivel de agua y variables meteorológicas, calcula
 | `actuacion.h/.cpp` | Actuación local | LCD rotativo, semáforo de LEDs, buzzer intermitente |
 | `historico.h/.cpp` | Histórico | Buffer circular de 360 mediciones y 20 eventos |
 | `servidor.h/.cpp` | Servidor web | Wi-Fi, mDNS, rutas HTTP, SSE, filtro de IP y autenticación Digest |
+| `mqtt_cliente.h/.cpp` | Transmisión MQTT | `TareaMQTT` (núcleo 0, prioridad 1): publica lecturas y cambios de alarma al gateway, *Last Will* y órdenes de silenciar/rearmar. Primera versión: Ana María Cordero |
 | `tablero_html.h` | Tablero | Página HTML/CSS/JS en flash, sin dependencias externas |
 
 ## Flujo de una medición
@@ -39,7 +41,30 @@ TareaMedicion → lee sensores → cola qLecturas
 TareaFusionAlerta (núcleo 1) → fusión → máquina de alarma → histórico → evento SSE
 TareaFusionAlerta (cada 250 ms) → LCD, LEDs y buzzer
 Servidor web (tarea de AsyncTCP) → responde al tablero; silenciar/rearmar vía mutex
+TareaFusionAlerta → avisa a TareaMQTT (lectura nueva) y deja los cambios de alarma en la cola qMQTT
+TareaMQTT (núcleo 0) → publica en el broker del gateway; recibe silenciar/rearmar del tablero global
 ```
+
+## MQTT
+
+| Tema | Dirección | QoS | Retenido | Contenido |
+|---|---|---|---|---|
+| `sabana/<nodo>/lectura` | ESP32 → gateway | 0 | No | JSON de `/api/estado` con el campo `nodo` |
+| `sabana/<nodo>/alerta` | ESP32 → gateway | 0 (con cola) | Sí | `{"nodo","t","estado","riesgo","causa","origen"}` en cada cambio de estado |
+| `sabana/<nodo>/conexion` | ESP32 → gateway | 1 | Sí | `en_linea`; `desconectado` como *Last Will* |
+| `sabana/<nodo>/cmd/alarma` | gateway → ESP32 | 1 (suscripción) | No | `silenciar` o `rearmar` |
+
+`<nodo>` es `NODO_ID` en `config.h`. PubSubClient solo publica con QoS 0; por eso los cambios de alarma esperan en la cola `qMQTT` hasta publicarse con la conexión activa y se publican retenidos.
+
+**Si no conecta**, el Monitor Serie muestra `MQTT: ... fallo, estado N`:
+
+| Estado | Causa probable | Qué revisar |
+|---|---|---|
+| −2 | El broker no responde | IP de la Raspberry Pi en `MQTT_HOST`; en `/etc/mosquitto/mosquitto.conf`, `listener 1883` (Mosquitto 2 solo escucha en localhost por defecto) |
+| 4 | Usuario o contraseña incorrectos | `MQTT_USER`/`MQTT_PASS` y el `password_file` de Mosquitto |
+| 5 | No autorizado | Sin `MQTT_USER`, Mosquitto necesita `allow_anonymous true` (solo para pruebas) |
+
+Para ver los mensajes en la Raspberry Pi: `mosquitto_sub -v -t 'sabana/#'`. Para probar la orden: `mosquitto_pub -t sabana/tanque01/cmd/alarma -m silenciar`.
 
 ## API
 
@@ -49,7 +74,7 @@ Servidor web (tarea de AsyncTCP) → responde al tablero; silenciar/rearmar vía
 | GET | `/api/estado` | Última lectura, riesgo, estado de la alarma, causa y estado de los sensores |
 | GET | `/api/historico?n=120` | `{"campos":[...],"datos":[[...]]}` con las últimas *n* mediciones |
 | GET | `/api/eventos` | Últimos 20 eventos, del más reciente al más antiguo |
-| GET | `/api/diag` | Periodo real de medición (mín., máx., último), memoria libre, RSSI, clientes SSE |
+| GET | `/api/diag` | Periodo real de medición (mín., máx., último), memoria libre, RSSI, clientes SSE y conexión MQTT |
 | GET | `/events` | SSE: eventos `lectura` (cada medición) y `alerta` (al entrar en ALERTA) |
 | POST | `/api/alarma/silenciar` | Apaga el buzzer; 409 si la alarma no está en ALERTA |
 | POST | `/api/alarma/rearmar` | Vuelve a ALERTA; 409 si no está SILENCIADA |

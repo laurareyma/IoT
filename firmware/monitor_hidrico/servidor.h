@@ -16,6 +16,10 @@ void servidorMantener();
 bool        wifiConectado();
 const char* wifiIP();
 
+// Escribe el JSON de /api/estado. Si se indica `nodo`, agrega su identificador
+// (mensaje MQTT `lectura`). Requiere mtxEstado tomado.
+void escribirEstadoJSON(Print& out, const char* nodo = nullptr);
+
 // Publica eventos SSE. Se llaman desde TareaFusionAlerta.
 void servidorPublicarLectura();
 void servidorPublicarAlerta();
