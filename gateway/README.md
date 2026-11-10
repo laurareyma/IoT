@@ -1,12 +1,13 @@
 # Gateway — Raspberry Pi (Challenge 3)
 
-Programa del gateway IoT: recibe por MQTT los datos del nodo ESP32, los guarda en SQLite, los promedia por minuto y los envía a Ubidots, ejecuta el módulo de IA y reenvía al ESP32 la orden de silenciar que llega desde el tablero global.
+Programa del gateway IoT: recibe por MQTT los datos del nodo ESP32, los guarda en SQLite, los promedia por minuto y los envía a Ubidots, ejecuta el módulo de IA, avisa por Telegram los cambios de la alarma y reenvía al ESP32 la orden de silenciar que llega desde el tablero global.
 
 Diseño: wiki, páginas [02e, sección 5](https://github.com/laurareyma/IoT/wiki/02e-Tablero-Web-y-Seguridad#5-gateway-sqlite-procesamiento-y-envío-a-la-nube) y [02c, sección 4](https://github.com/laurareyma/IoT/wiki/02c-Arquitectura-y-Logica-de-Fusion#4-módulo-de-inteligencia-artificial).
 
 ```
 ESP32 --MQTT--> Mosquitto --> gateway.py --> SQLite (lecturas, eventos, predicciones, pendientes)
                                          \--> Ubidots (MQTT + TLS, puerto 8883)
+                                         \--> Telegram (bot, HTTPS): avisos de la alarma
 Ubidots (interruptor "silenciar") --> gateway.py --> sabana/<nodo>/cmd/alarma --> ESP32
 ```
 
@@ -16,9 +17,9 @@ Ubidots (interruptor "silenciar") --> gateway.py --> sabana/<nodo>/cmd/alarma --
 |---|---|
 | `gateway.py` | Programa del gateway |
 | `schema.sql` | Esquema de SQLite (tablas `lecturas`, `eventos`, `predicciones`, `pendientes`). `gateway.py` lo aplica al arrancar; también sirve para crear la base a mano: `sqlite3 gateway.db < schema.sql` |
-| `test_gateway.py` | 19 pruebas de la lógica (pronóstico, plantilla, validación de Gemini, SQLite, mensajes de Ubidots). No necesitan red ni `paho-mqtt` |
+| `test_gateway.py` | 24 pruebas de la lógica (pronóstico, plantilla, validación de Gemini, SQLite, mensajes de Ubidots, avisos de Telegram). No necesitan red ni `paho-mqtt` |
 | `gateway.conf.example` | Plantilla de configuración. Copiar como `gateway.conf` (está en `.gitignore`) |
-| `requirements.txt` | Única dependencia externa: `paho-mqtt`. La llamada a Gemini usa `urllib` (biblioteca estándar) contra la API REST, así que no hacen falta `requests` ni `google-genai` |
+| `requirements.txt` | Única dependencia externa: `paho-mqtt`. Gemini y Telegram se llaman con `urllib` (biblioteca estándar) contra sus API REST, así que no hacen falta `requests`, `google-genai` ni librerías de bots |
 | `mosquitto/sabana.conf`, `mosquitto/acl` | Configuración del broker local: escucha en la red, usuarios y lista de control de acceso |
 | `gateway.service` | Servicio de systemd para que el gateway arranque con la Raspberry Pi |
 
@@ -39,7 +40,7 @@ sudo systemctl restart mosquitto
 # 3. Gateway
 mkdir -p /home/pi/gateway && cp gateway.py schema.sql gateway.conf.example /home/pi/gateway/
 cd /home/pi/gateway && cp gateway.conf.example gateway.conf
-nano gateway.conf          # clave de Mosquitto, token de Ubidots y clave de Gemini
+nano gateway.conf          # clave de Mosquitto, token de Ubidots, clave de Gemini y bot de Telegram
 python3 gateway.py --config gateway.conf      # prueba en primer plano (Ctrl+C para salir)
 
 # 4. Que arranque solo
@@ -102,11 +103,45 @@ El gateway se suscribe a esta variable. Cuando vale 1, envía `silenciar` al ESP
 
 ### 5. Notificación por Telegram (prueba N-03)
 
-1. **Data → Events → + Crear evento**.
-2. Disparador: variable `estado_alarma` del dispositivo `tanque01`, **igual a 2** (ALERTA), durante 0 minutos.
-3. Acción: **Telegram**. Seguir las instrucciones de Ubidots para vincular el bot con el chat o grupo del personal autorizado.
-4. Mensaje sugerido: `ALERTA en {{device.name}}: riesgo de desabastecimiento. Revisar el tablero.`
-5. Opcional: acción de "vuelta a la normalidad" cuando `estado_alarma` vuelva a 0.
+El plan de Ubidots no tiene la acción Telegram en sus eventos, así que **el aviso lo envía el gateway** con un bot propio. No hay que configurar nada en Ubidots para esto.
+
+**a. Crear el bot**
+1. En Telegram, abrir **@BotFather** y enviar `/newbot`.
+2. Darle un nombre (p. ej., *Monitor Hídrico Sabana*) y un usuario que termine en `bot`.
+3. BotFather responde con el **token** (`123456789:AAH...`). Es secreto, igual que el de Ubidots.
+
+**b. Obtener el chat_id**
+1. Crear un grupo con el personal autorizado y agregar el bot. Para avisos a una sola persona, basta con abrir el chat con el bot.
+2. Escribir cualquier mensaje en el grupo (p. ej., `/start`).
+3. En la Raspberry Pi:
+   ```bash
+   curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | python3 -m json.tool | grep -A3 '"chat"'
+   ```
+   El `"id"` que aparece es el chat_id. En un grupo es **negativo** (`-100...` o `-4...`): hay que copiar también el signo menos.
+   Si la respuesta sale vacía (`"result": []`), escribir otro mensaje en el grupo y repetir. En grupos, si sigue vacía, en BotFather: `/setprivacy` → elegir el bot → **Disable**.
+
+**c. Configurar el gateway**
+```ini
+[telegram]
+token = 123456789:AAH...
+chat_id = -1001234567890
+```
+Sin comillas. Reiniciar el gateway (`sudo systemctl restart gateway`).
+
+**d. Probar sin el ESP32**
+```bash
+python3 -c "import gateway as g; c=g.cargar_config('gateway.conf'); print(g.enviar_telegram('Prueba del gateway', c))"
+```
+Debe imprimir `True` y llegar el mensaje. Si sale `False`, el registro dice la causa: `HTTP 401` = token mal copiado; `HTTP 400` = chat_id mal (o falta el signo menos) o el bot no está en el grupo; `HTTP 403` = el bot fue expulsado o bloqueado.
+
+**Qué se avisa:** cada cambio de estado de la alarma (ALERTA, PRECAUCIÓN, SILENCIADA con desde dónde se silenció, vuelta a NORMAL), con el riesgo y la causa probable, y la desconexión de un nodo. Ejemplo:
+```
+🚨 ALERTA en tanque01: riesgo de desabastecimiento
+Riesgo: 0.70
+Causa probable: EVAPORACION
+Revisar el tablero y, si aplica, silenciar la alarma.
+```
+Los avisos salen en un hilo aparte (una red lenta no retrasa los mensajes MQTT) y se reintentan 3 veces si fallan.
 
 ### 6. Acceso restringido (prueba N-05)
 
@@ -130,12 +165,12 @@ El gateway envía unos **8.600 datos por día**: 6 variables × 1.440 minutos, m
 | Mensaje recibido | Acción |
 |---|---|
 | `sabana/<nodo>/lectura` | Se guarda en `lecturas` de inmediato (CD-06). Cada minuto se promedian y se envían a Ubidots: `nivel_pct`, `temp_c`, `hum_pct`, `presion_hpa`, `evaporacion`, `riesgo` |
-| `sabana/<nodo>/alerta` | Fila en `eventos` y `estado_alarma` a Ubidots de inmediato (0 NORMAL, 1 PRECAUCION, 2 ALERTA, 3 SILENCIADA) |
-| `sabana/<nodo>/conexion` | Fila en `eventos` y `nodo_en_linea` (1/0) a Ubidots |
+| `sabana/<nodo>/alerta` | Fila en `eventos`, `estado_alarma` a Ubidots de inmediato (0 NORMAL, 1 PRECAUCION, 2 ALERTA, 3 SILENCIADA) y aviso por Telegram |
+| `sabana/<nodo>/conexion` | Fila en `eventos` y `nodo_en_linea` (1/0) a Ubidots; si es `desconectado`, aviso por Telegram |
 | Ubidots `/v1.6/devices/<nodo>/silenciar/lv` = 1 | Fila en `eventos` (origen ubidots), publica `silenciar` en `sabana/<nodo>/cmd/alarma` (QoS 1) y devuelve el interruptor a 0 |
 
 - **Sin internet:** lo que va a Ubidots se guarda en `pendientes` y se envía en orden, con su marca de tiempo original, al volver la conexión (CD-07).
-- **Mensajes retenidos** (último estado al reiniciar el gateway): actualizan Ubidots, pero no se registran como eventos nuevos.
+- **Mensajes retenidos** (último estado al reiniciar el gateway): actualizan Ubidots, pero no se registran como eventos nuevos ni se avisan por Telegram.
 
 ## Módulo de IA (cada 5 min)
 

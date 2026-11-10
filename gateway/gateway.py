@@ -20,6 +20,9 @@ Qué hace:
      el nivel crítico y recomendación de Gemini, con plantilla si falla.
      La IA no actúa sobre la alarma (CD-15).
   5. Reenvía al ESP32 la orden de silenciar que llega desde Ubidots.
+  6. Avisa por Telegram (bot propio) cada cambio de estado de la alarma y la
+     desconexión de un nodo. El plan de Ubidots no incluye la acción Telegram
+     en sus eventos, por eso el aviso sale del gateway.
 
 Uso:
   python3 gateway.py --config gateway.conf
@@ -35,12 +38,14 @@ import json
 import logging
 import math
 import os
+import queue
 import signal
 import sqlite3
 import ssl
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -85,6 +90,9 @@ class Config:
     gemini_clave: str = ""
     gemini_modelo: str = "gemini-2.5-flash"
     gemini_timeout_s: float = 10.0
+    # Telegram (02e, sección 8.1). Vacíos = sin avisos.
+    telegram_token: str = ""
+    telegram_chat_id: str = ""
 
 
 def cargar_config(ruta: str) -> Config:
@@ -111,6 +119,8 @@ def cargar_config(ruta: str) -> Config:
     c.gemini_clave = g("ia", "gemini_clave", fallback="")
     c.gemini_modelo = g("ia", "gemini_modelo", fallback=c.gemini_modelo)
     c.gemini_timeout_s = cp.getfloat("ia", "gemini_timeout_s", fallback=c.gemini_timeout_s)
+    c.telegram_token = g("telegram", "token", fallback="").strip()
+    c.telegram_chat_id = g("telegram", "chat_id", fallback="").strip()
     return c
 
 
@@ -430,6 +440,92 @@ def payload_pronostico(p: Pronostico, prioridad: str, recomendacion: str, ts: in
 
 
 # =============================================================================
+# Avisos por Telegram (02e, sección 8.1)
+# =============================================================================
+TEXTO_ESTADO = {
+    "ALERTA": "🚨 ALERTA en {nodo}: riesgo de desabastecimiento",
+    "PRECAUCION": "⚠️ PRECAUCIÓN en {nodo}: el riesgo está subiendo",
+    "SILENCIADA": "🔕 Alarma de {nodo} silenciada",
+    "NORMAL": "✅ {nodo} volvió a la normalidad",
+}
+TEXTO_ORIGEN = {"tablero_local": "desde el tablero local",
+                "ubidots": "desde el tablero global (Ubidots)"}
+
+
+def texto_alerta(nodo: str, d: dict) -> Optional[str]:
+    """Mensaje de Telegram para un cambio de estado de la alarma."""
+    plantilla = TEXTO_ESTADO.get(d.get("estado", ""))
+    if not plantilla:
+        return None
+    lineas = [plantilla.format(nodo=nodo)]
+    riesgo = d.get("riesgo")
+    if isinstance(riesgo, (int, float)):
+        lineas.append(f"Riesgo: {riesgo:.2f}")
+    causa = d.get("causa")
+    if causa and causa != "NINGUNA":
+        lineas.append(f"Causa probable: {causa}")
+    if d.get("origen") in TEXTO_ORIGEN:
+        lineas.append(f"Acción {TEXTO_ORIGEN[d['origen']]}")
+    if d.get("estado") == "ALERTA":
+        lineas.append("Revisar el tablero y, si aplica, silenciar la alarma.")
+    return "\n".join(lineas)
+
+
+def enviar_telegram(texto: str, cfg: Config, abrir=urllib.request.urlopen) -> bool:
+    """Envía un mensaje con la API de bots de Telegram. True si Telegram lo aceptó."""
+    url = f"https://api.telegram.org/bot{cfg.telegram_token}/sendMessage"
+    datos = urllib.parse.urlencode({"chat_id": cfg.telegram_chat_id, "text": texto}).encode()
+    try:
+        with abrir(urllib.request.Request(url, data=datos, method="POST"), timeout=10) as r:
+            return bool(json.loads(r.read().decode("utf-8")).get("ok"))
+    except urllib.error.HTTPError as e:
+        # 401: token mal copiado · 400 "chat not found": chat_id mal o el bot no
+        # está en el grupo · 403: el bot fue bloqueado o expulsado del chat
+        log.warning("Telegram rechazó el mensaje: HTTP %s", e.code)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+        log.warning("No se pudo enviar el mensaje de Telegram: %s", getattr(e, "reason", e))
+    return False
+
+
+class AvisosTelegram:
+    """Envía los avisos en su propio hilo y en orden, para que una red lenta no
+    retrase la recepción de mensajes MQTT. Si falla, reintenta 3 veces."""
+
+    def __init__(self, cfg: Config, enviar=enviar_telegram):
+        self.cfg = cfg
+        self.enviar = enviar
+        self.activo = bool(cfg.telegram_token and cfg.telegram_chat_id)
+        self.cola: "queue.Queue[Optional[str]]" = queue.Queue(maxsize=50)
+        self.hilo = threading.Thread(target=self._trabajar, name="telegram", daemon=True)
+        if self.activo:
+            self.hilo.start()
+
+    def avisar(self, texto: Optional[str]) -> None:
+        if not (self.activo and texto):
+            return
+        try:
+            self.cola.put_nowait(texto)
+        except queue.Full:
+            log.warning("Cola de Telegram llena: se descarta un aviso")
+
+    def detener(self) -> None:
+        if self.activo:
+            self.cola.put(None)
+            self.hilo.join(timeout=15)
+
+    def _trabajar(self) -> None:
+        while True:
+            texto = self.cola.get()
+            if texto is None:
+                return
+            for intento in range(3):
+                if self.enviar(texto, self.cfg):
+                    log.info("Aviso de Telegram enviado: %s", texto.splitlines()[0])
+                    break
+                time.sleep(5 * (intento + 1))
+
+
+# =============================================================================
 # Gateway: MQTT local + Ubidots
 # =============================================================================
 def _crear_cliente(mqtt, client_id: str):
@@ -451,6 +547,7 @@ class Gateway:
         self.ubidots_ok = threading.Event()
         self.detener = threading.Event()
         self.ultimo_pronostico = {}  # nodo -> Pronostico válido más reciente
+        self.avisos = AvisosTelegram(cfg)
 
         # ---- Broker local (Mosquitto)
         self.local = _crear_cliente(mqtt, "gateway_sabana")
@@ -508,6 +605,7 @@ class Gateway:
         if not retenido:
             self.db.guardar_evento(nodo, "alerta", d.get("origen"),
                                    f"{estado} riesgo={d.get('riesgo')} causa={d.get('causa')}", ts)
+            self.avisos.avisar(texto_alerta(nodo, d))  # sin red, Telegram reintenta aparte
         p = payload_estado(estado, d.get("causa"), d.get("origen"), ts)
         if p:
             self.publicar_ubidots(nodo, p, ts)  # inmediato, sin esperar el promedio
@@ -516,6 +614,9 @@ class Gateway:
         en_linea = 1 if texto == "en_linea" else 0
         if not retenido:
             self.db.guardar_evento(nodo, "conexion", "automatico", texto, ts)
+            if not en_linea:
+                self.avisos.avisar(f"📡 {nodo} se desconectó: sin datos del nodo. "
+                                   "Revisar la energía y el Wi-Fi.")
         self.publicar_ubidots(nodo, json.dumps({"nodo_en_linea": {"value": en_linea,
                                                                    "timestamp": ts}}), ts)
 
@@ -629,6 +730,7 @@ class Gateway:
                     except Exception:  # la IA nunca debe detener el gateway (CD-16)
                         log.exception("Error en el módulo de IA")
         finally:
+            self.avisos.detener()
             self.local.loop_stop()
             self.ubi.loop_stop()
             self.local.disconnect()
@@ -648,6 +750,8 @@ def main():
         log.warning("Sin token de Ubidots: todo quedará en la tabla pendientes")
     if not cfg.gemini_clave:
         log.warning("Sin clave de Gemini: se usará siempre la recomendación de plantilla")
+    if not (cfg.telegram_token and cfg.telegram_chat_id):
+        log.warning("Sin token o chat_id de Telegram: no se enviarán avisos")
     gw = Gateway(cfg)
     signal.signal(signal.SIGINT, lambda *_: gw.detener.set())
     signal.signal(signal.SIGTERM, lambda *_: gw.detener.set())

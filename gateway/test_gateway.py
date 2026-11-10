@@ -2,7 +2,8 @@
 """
 Pruebas de la lógica del gateway que no necesitan red ni hardware:
 pronóstico (casos de la prueba IA-01), plantilla, validación de la respuesta
-de Gemini (IA-03), SQLite (M-02, M-03) y mensajes para Ubidots.
+de Gemini (IA-03), SQLite (M-02, M-03), mensajes para Ubidots y avisos de
+Telegram (N-03).
 
 Ejecutar:  python3 test_gateway.py
 No necesita paho-mqtt ni conexión a internet.
@@ -188,6 +189,69 @@ class PruebasUbidots(unittest.TestCase):
         d = json.loads(gw.payload_pronostico(p, "baja", "Seguir el monitoreo.", 5))
         self.assertEqual(d["horas_restantes"]["value"], -1.0)
         self.assertEqual(d["horas_restantes"]["context"]["recomendacion"], "Seguir el monitoreo.")
+
+
+class PruebasTelegram(unittest.TestCase):
+    """N-03: texto de los avisos y manejo de errores, sin red."""
+
+    def cfg(self):
+        c = gw.Config()
+        c.telegram_token, c.telegram_chat_id = "123:abc", "-100"
+        return c
+
+    def test_texto_alerta(self):
+        t = gw.texto_alerta("tanque01", {"estado": "ALERTA", "riesgo": 0.71234,
+                                         "causa": "FUGA", "origen": "automatico"})
+        self.assertIn("ALERTA en tanque01", t)
+        self.assertIn("Riesgo: 0.71", t)
+        self.assertIn("FUGA", t)
+
+    def test_texto_silenciada_dice_desde_donde(self):
+        t = gw.texto_alerta("tanque01", {"estado": "SILENCIADA", "riesgo": None,
+                                         "causa": "NINGUNA", "origen": "ubidots"})
+        self.assertIn("silenciada", t)
+        self.assertIn("Ubidots", t)
+        self.assertNotIn("Riesgo", t)
+        self.assertIsNone(gw.texto_alerta("tanque01", {"estado": "OTRO"}))
+
+    def test_envio_correcto_y_errores(self):
+        import io
+        import urllib.error
+
+        enviados = []
+
+        def abrir_ok(req, timeout):
+            enviados.append(req)
+            return io.BytesIO(b'{"ok": true}')
+
+        self.assertTrue(gw.enviar_telegram("hola", self.cfg(), abrir=abrir_ok))
+        self.assertIn("/bot123:abc/sendMessage", enviados[0].full_url)
+        self.assertIn(b"chat_id=-100", enviados[0].data)
+
+        def abrir_401(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+
+        def abrir_sin_red(req, timeout):
+            raise urllib.error.URLError("sin red")
+
+        with self.assertLogs("gateway", level="WARNING"):
+            self.assertFalse(gw.enviar_telegram("hola", self.cfg(), abrir=abrir_401))
+            self.assertFalse(gw.enviar_telegram("hola", self.cfg(), abrir=abrir_sin_red))
+
+    def test_sin_configurar_no_envia(self):
+        llamadas = []
+        avisos = gw.AvisosTelegram(gw.Config(), enviar=lambda *a: llamadas.append(a))
+        avisos.avisar("hola")
+        self.assertFalse(avisos.activo)
+        self.assertEqual(llamadas, [])
+
+    def test_hilo_envia_en_orden(self):
+        recibidos = []
+        avisos = gw.AvisosTelegram(self.cfg(), enviar=lambda t, c: recibidos.append(t) or True)
+        for t in ("uno", "dos", "tres"):
+            avisos.avisar(t)
+        avisos.detener()
+        self.assertEqual(recibidos, ["uno", "dos", "tres"])
 
 
 if __name__ == "__main__":

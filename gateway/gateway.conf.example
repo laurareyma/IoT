@@ -33,3 +33,10 @@ periodo_s = 300
 gemini_clave =
 gemini_modelo = gemini-2.5-flash
 gemini_timeout_s = 10
+
+[telegram]
+# Bot creado con @BotFather. Vacíos = sin avisos.
+# Escribir sin comillas: token = 123456789:ABC...
+token =
+# Chat o grupo que recibe los avisos (ver README, "Notificación por Telegram")
+chat_id =
